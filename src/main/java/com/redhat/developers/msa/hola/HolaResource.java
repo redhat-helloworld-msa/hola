@@ -21,7 +21,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import javax.inject.Inject;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.GET;
@@ -36,24 +35,24 @@ import org.apache.http.impl.client.HttpClients;
 import org.keycloak.KeycloakPrincipal;
 import org.keycloak.KeycloakSecurityContext;
 
-import com.github.kristofa.brave.Brave;
-import com.github.kristofa.brave.ServerSpan;
-import com.github.kristofa.brave.http.DefaultSpanNameProvider;
-import com.github.kristofa.brave.httpclient.BraveHttpRequestInterceptor;
-import com.github.kristofa.brave.httpclient.BraveHttpResponseInterceptor;
+import com.redhat.developers.msa.hola.tracing.HolaHttpRequestInterceptor;
+import com.redhat.developers.msa.hola.tracing.HolaHttpResponseInterceptor;
+import com.redhat.developers.msa.hola.tracing.TracerResolver;
 
 import feign.Logger;
 import feign.Logger.Level;
 import feign.httpclient.ApacheHttpClient;
 import feign.hystrix.HystrixFeign;
 import feign.jackson.JacksonDecoder;
+import io.opentracing.Span;
+import io.opentracing.SpanContext;
+import io.opentracing.Tracer;
 import io.swagger.annotations.ApiOperation;
 
 @Path("/")
 public class HolaResource {
 
-    @Inject
-    private Brave brave;
+    private Tracer tracer = TracerResolver.getTracer();
 
     @Context
     private SecurityContext securityContext;
@@ -74,8 +73,8 @@ public class HolaResource {
             // 5 Seconds cache only for demo purpose
             .cacheFor(TimeUnit.SECONDS, 5)
             .getValue();
-        return String.format(translation, hostname);
 
+        return String.format(translation, hostname);
     }
 
     @GET
@@ -132,24 +131,34 @@ public class HolaResource {
      * @return The feign pointing to the service URL and with Hystrix fallback.
      */
     private AlohaService getNextService() {
-        final String serviceName = "aloha";
-        // This stores the Original/Parent ServerSpan from ZiPkin.
-        final ServerSpan serverSpan = brave.serverSpanThreadBinder().getCurrentServerSpan();
-        final CloseableHttpClient httpclient =
-            HttpClients.custom()
-                .addInterceptorFirst(new BraveHttpRequestInterceptor(brave.clientRequestInterceptor(), new DefaultSpanNameProvider()))
-                .addInterceptorFirst(new BraveHttpResponseInterceptor(brave.clientResponseInterceptor()))
-                .build();
-        String url = String.format("http://%s:8080/", serviceName);
-        return HystrixFeign.builder()
-            // Use apache HttpClient which contains the ZipKin Interceptors
-            .client(new ApacheHttpClient(httpclient))
-            // Bind Zipkin Server Span to Feign Thread
-            .requestInterceptor((t) -> brave.serverSpanThreadBinder().setCurrentSpan(serverSpan))
-            .logger(new Logger.ErrorLogger()).logLevel(Level.BASIC)
-            .decoder(new JacksonDecoder())
-            .target(AlohaService.class, url,
-                () -> Collections.singletonList("Aloha response (fallback)"));
-    }
+        String url = System.getenv("ALOHA_SERVER_URL");
+        if (null == url || url.isEmpty()) {
+            String host = System.getenv("ALOHA_SERVICE_HOST");
+            String port = System.getenv("ALOHA_SERVICE_PORT");
+            if (null == host) {
+                url = "http://aloha:8080/";
+            } else {
+                url = String.format("http://%s:%s", host, port);
+            }
+        }
 
+        Span parentSpan = (Span) servletRequest.getAttribute("tracing.requestSpan");
+
+        final CloseableHttpClient httpclient;
+        if (tracer != null) {
+            Span span = tracer.buildSpan("GET").asChildOf(parentSpan).start();
+            httpclient = HttpClients.custom()
+                    .addInterceptorFirst(new HolaHttpRequestInterceptor(span))
+                    .addInterceptorFirst(new HolaHttpResponseInterceptor(span))
+                    .build();
+        } else {
+            httpclient = HttpClients.custom().build();
+        }
+
+        return HystrixFeign.builder()
+                .logger(new Logger.ErrorLogger()).logLevel(Level.BASIC)
+                .client(new ApacheHttpClient(httpclient))
+                .decoder(new JacksonDecoder())
+                .target(AlohaService.class, url, () -> Collections.singletonList("Aloha response (fallback)"));
+    }
 }

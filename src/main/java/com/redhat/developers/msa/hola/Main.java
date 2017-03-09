@@ -24,6 +24,8 @@ import org.jboss.shrinkwrap.api.asset.ClassLoaderAsset;
 import org.wildfly.swarm.Swarm;
 import org.wildfly.swarm.undertow.WARArchive;
 
+import com.redhat.developers.msa.hola.tracing.TracerResolver;
+
 /**
  * @author rafaelbenevides
  *
@@ -43,6 +45,7 @@ public class Main {
 
         // Add resource to deployment
         deployment.addPackage(Main.class.getPackage());
+        deployment.addPackage(TracerResolver.class.getPackage());
         deployment.addAllDependencies();
 
         // Add Web resources
