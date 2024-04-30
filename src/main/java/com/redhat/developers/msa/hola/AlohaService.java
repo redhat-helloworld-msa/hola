@@ -16,13 +16,21 @@
  */
 package com.redhat.developers.msa.hola;
 
-import feign.RequestLine;
-
 import java.util.List;
 
+import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
+
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
+
+@RegisterRestClient(baseUri = "http://aloha:8080")
 public interface AlohaService {
 
-	@RequestLine("GET /api/aloha-chaining")
+	@GET
+	@Path("/api/aloha-chaining")
+	@Produces(MediaType.APPLICATION_JSON)
 	public List<String> aloha();
 
 }

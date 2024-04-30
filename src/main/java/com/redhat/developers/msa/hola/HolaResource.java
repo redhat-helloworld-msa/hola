@@ -18,56 +18,45 @@ package com.redhat.developers.msa.hola;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
-import javax.inject.Inject;
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServletRequest;
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.Context;
-import javax.ws.rs.core.SecurityContext;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.eclipse.microprofile.jwt.JsonWebToken;
+import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.opentracing.Traced;
+import org.eclipse.microprofile.rest.client.inject.RestClient;
 
-import org.apache.deltaspike.core.api.config.ConfigResolver;
-import org.keycloak.KeycloakPrincipal;
-import org.keycloak.KeycloakSecurityContext;
-
-import io.swagger.annotations.ApiOperation;
+import jakarta.annotation.security.PermitAll;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
 
 @Path("/")
 public class HolaResource {
 
-    @Inject
+    @RestClient
     private AlohaService alohaService;
 
-    @Context
-    private SecurityContext securityContext;
+    @Inject
+    JsonWebToken jwt;
 
-    @Context
-    private HttpServletRequest servletRequest;
+    @Inject
+    @ConfigProperty(name = "hola")
+    private String translation;
 
     @GET
     @Path("/hola")
     @Produces("text/plain")
-    @ApiOperation("Returns the greeting in Spanish")
+    @Operation(description = "Returns the greeting in Spanish")
     public String hola() {
         String hostname = System.getenv().getOrDefault("HOSTNAME", "unknown");
-        String translation = ConfigResolver
-            .resolve("hello")
-            .withDefault("Hola de %s")
-            .logChanges(true)
-            // 5 Seconds cache only for demo purpose
-            .cacheFor(TimeUnit.SECONDS, 5)
-            .getValue();
         return String.format(translation, hostname);
-
     }
 
     @GET
     @Path("/hola-chaining")
     @Produces("application/json")
-    @ApiOperation("Returns the greeting plus the next service in the chain")
+    @Operation(description = "Returns the greeting plus the next service in the chain")
     public List<String> holaChaining() {
         List<String> greetings = new ArrayList<>();
         greetings.add(hola());
@@ -78,35 +67,18 @@ public class HolaResource {
     @GET
     @Path("/hola-secured")
     @Produces("text/plain")
-    @ApiOperation("Returns a message that is only available for authenticated users")
+    @PermitAll
+    @Operation(description = "Returns a message that is only available for authenticated users")
     public String holaSecured() {
         // this will set the user id as userName
-        String userName = securityContext.getUserPrincipal().getName();
-
-        if (securityContext.getUserPrincipal() instanceof KeycloakPrincipal) {
-            @SuppressWarnings("unchecked")
-            KeycloakPrincipal<KeycloakSecurityContext> kp = (KeycloakPrincipal<KeycloakSecurityContext>) securityContext.getUserPrincipal();
-
-            // this is how to get the real userName (or rather the login name)
-            userName = kp.getKeycloakSecurityContext().getToken().getName();
-        }
-        return "This is a Secured resource. You are logged as " + userName;
-
-    }
-
-    @GET
-    @Path("/logout")
-    @Produces("text/plain")
-    @ApiOperation("Logout")
-    public String logout() throws ServletException {
-        servletRequest.logout();
-        return "Logged out";
+        return "This is a Secured resource. You are logged as " + jwt.getName();
     }
 
     @GET
     @Path("/health")
     @Produces("text/plain")
-    @ApiOperation("Used to verify the health of the service")
+    @Operation(description = "Used to verify the health of the service")
+    @Traced(value = false)
     public String health() {
         return "I'm ok";
     }
